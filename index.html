@@ -11,10 +11,20 @@
 <body hx-ext="ws" ws-connect="/ws">
     <div class="container">
         <h1>🎵 Wrap It Up!</h1>
+        <div class="room-info" id="roomInfo" style="margin-bottom: 1rem; font-size: 0.9rem; opacity: 0.8;"></div>
+        
+        <!-- Hidden join room trigger that fires on connection -->
+        <div id="joinRoomSender" 
+             style="display: none;"
+             hx-trigger="htmx:wsOpen from:body"
+             ws-send
+             hx-vals="">
+        </div>
+        
         <button 
             class="play-button" 
             id="playButton"
-            hx-ws="send:toggle_music"
+            ws-send
             hx-vals='{"type": "toggle_music"}'
             hx-trigger="click">
             Start Playing Music

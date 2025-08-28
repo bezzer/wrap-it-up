@@ -8,13 +8,21 @@ const PORT = process.env.PORT || 3000;
 
 const app = express();
 
-// Serve only the index.html file at root
+// Serve static files (JS, songs, etc.)
+app.use(express.static('static'));
+
+// Serve index.html for root and room paths
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Serve static files (JS, songs, etc.)
-app.use(express.static('static'));
+app.get('/:roomId', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/:roomId/host', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // API endpoint to get available songs
 app.get('/api/songs', (req, res) => {
@@ -41,11 +49,21 @@ const wss = new WebSocket.Server({
     path: '/ws'
 });
 
-let connectedUsers = 0;
-let isPlaying = false;
-let playStartTime = null;
-let currentSong = null;
+// Room-based state management
+const rooms = new Map();
 let availableSongs = [];
+
+// Room state structure
+function createRoom(roomId) {
+    return {
+        id: roomId,
+        users: new Set(),
+        hosts: new Set(),
+        isPlaying: false,
+        playStartTime: null,
+        currentSong: null
+    };
+}
 
 // Load available songs on startup
 function loadSongs() {
@@ -72,78 +90,123 @@ function getRandomSong() {
 // Load songs on startup
 loadSongs();
 
-function broadcast(data) {
+function broadcastToRoom(roomId, data) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
     wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
+        if (client.readyState === WebSocket.OPEN && client.roomId === roomId) {
             client.send(JSON.stringify(data));
         }
     });
 }
 
-wss.on('connection', (ws) => {
-    connectedUsers++;
-    console.log(`[WebSocket] User connected. Total users: ${connectedUsers}`);
+function getOrCreateRoom(roomId) {
+    if (!rooms.has(roomId)) {
+        rooms.set(roomId, createRoom(roomId));
+        console.log(`[Room] Created new room: ${roomId}`);
+    }
+    return rooms.get(roomId);
+}
+
+wss.on('connection', (ws, req) => {
+    // Parse room and host info from URL or initial message
+    ws.roomId = null;
+    ws.isHost = false;
     
-    ws.send(JSON.stringify({
-        type: 'user_count',
-        count: connectedUsers
-    }));
+    console.log(`[WebSocket] User connected from: ${req.url}`);
     
-    ws.send(JSON.stringify({
-        type: 'music_state',
-        isPlaying: isPlaying,
-        startTime: playStartTime,
-        songUrl: currentSong
-    }));
-    
-    broadcast({
-        type: 'user_count',
-        count: connectedUsers
-    });
-        
+    // Wait for room info from client
     ws.on('message', (message) => {
         const messageStr = message.toString();
-        const messageJson = JSON.parse(messageStr);
-        const messageType = messageJson.type;
-
-        console.log(`[WebSocket] Message received: ${messageStr}`);
+        console.log(`[WebSocket] Message received:`, messageStr);
 
         try {
-            // Handle HTMX ws-send messages - they come as plain text, not JSON
-            if (messageType === 'toggle_music') {
-                console.log(`[WebSocket] Toggle music trigger received`);
+            const data = JSON.parse(messageStr);
+            
+            // Handle room join message
+            if (data.type === 'join_room') {
+                const roomId = data.roomId || 'default';
+                const isHost = data.isHost || false;
                 
-                if (isPlaying) {
-                    isPlaying = false;
-                    playStartTime = null;
-                    currentSong = null;
-                    console.log(`[WebSocket] Music stopped`);
+                ws.roomId = roomId;
+                ws.isHost = isHost;
+                
+                const room = getOrCreateRoom(roomId);
+                room.users.add(ws);
+                if (isHost) {
+                    room.hosts.add(ws);
+                }
+                
+                console.log(`[WebSocket] User joined room: ${roomId} as ${isHost ? 'HOST' : 'PARTICIPANT'}`);
+                
+                // Send current state to new user
+                ws.send(JSON.stringify({
+                    type: 'user_count',
+                    count: room.users.size
+                }));
+                
+                ws.send(JSON.stringify({
+                    type: 'music_state',
+                    isPlaying: room.isPlaying,
+                    startTime: room.playStartTime,
+                    songUrl: room.currentSong
+                }));
+                
+                // Broadcast user count update to room
+                broadcastToRoom(roomId, {
+                    type: 'user_count',
+                    count: room.users.size
+                });
+                
+                return;
+            }
+            
+            // Handle music toggle
+            if (data.type === 'toggle_music') {
+                if (!ws.roomId) {
+                    console.log(`[WebSocket] Music toggle ignored - user not in room`);
+                    return;
+                }
+                
+                const room = rooms.get(ws.roomId);
+                if (!room) return;
+                
+                // Check if user can control music (host mode logic)
+                const canControl = room.hosts.size === 0 || ws.isHost;
+                
+                if (!canControl) {
+                    console.log(`[WebSocket] Music toggle denied - user is not host and hosts exist`);
+                    return;
+                }
+                
+                console.log(`[WebSocket] Toggle music trigger received in room: ${ws.roomId}`);
+                
+                if (room.isPlaying) {
+                    room.isPlaying = false;
+                    room.playStartTime = null;
+                    room.currentSong = null;
+                    console.log(`[WebSocket] Music stopped in room: ${ws.roomId}`);
                 } else {
-                    isPlaying = true;
-                    playStartTime = Date.now();
-                    currentSong = getRandomSong();
-                    console.log(`[WebSocket] Music started - Song: ${currentSong}`);
+                    room.isPlaying = true;
+                    room.playStartTime = Date.now();
+                    room.currentSong = getRandomSong();
+                    console.log(`[WebSocket] Music started in room: ${ws.roomId} - Song: ${room.currentSong}`);
                 }
                 
                 const musicState = {
                     type: 'music_state',
-                    isPlaying: isPlaying,
-                    startTime: playStartTime,
-                    songUrl: currentSong
+                    isPlaying: room.isPlaying,
+                    startTime: room.playStartTime,
+                    songUrl: room.currentSong
                 };
-                console.log(`[WebSocket] Broadcasting music state:`, musicState);
-                broadcast(musicState);
+                console.log(`[WebSocket] Broadcasting music state to room ${ws.roomId}:`, musicState);
+                broadcastToRoom(ws.roomId, musicState);
                 return;
             }
             
-            // Try to parse as JSON for other message types
-            const data = JSON.parse(messageStr);
-            console.log(`[WebSocket] JSON message received:`, data);
+            console.log(`[WebSocket] Unknown message type: ${data.type}`);
             
-            switch (data.type) {
-                default:
-                    console.log(`[WebSocket] Unknown JSON message type: ${data.type}`);
-            }
         } catch (error) {
             console.log(`[WebSocket] Failed to parse as JSON:`, messageStr);
             console.error(`[WebSocket] Parse error:`, error.message);
@@ -151,12 +214,27 @@ wss.on('connection', (ws) => {
     });
     
     ws.on('close', () => {
-        connectedUsers--;
-        console.log(`[WebSocket] User disconnected. Total users: ${connectedUsers}`);
-        broadcast({
-            type: 'user_count',
-            count: connectedUsers
-        });
+        if (ws.roomId) {
+            const room = rooms.get(ws.roomId);
+            if (room) {
+                room.users.delete(ws);
+                room.hosts.delete(ws);
+                
+                console.log(`[WebSocket] User disconnected from room: ${ws.roomId}. Users left: ${room.users.size}`);
+                
+                // Broadcast updated user count
+                broadcastToRoom(ws.roomId, {
+                    type: 'user_count',
+                    count: room.users.size
+                });
+                
+                // Clean up empty rooms
+                if (room.users.size === 0) {
+                    rooms.delete(ws.roomId);
+                    console.log(`[Room] Deleted empty room: ${ws.roomId}`);
+                }
+            }
+        }
     });
     
     ws.on('error', (error) => {

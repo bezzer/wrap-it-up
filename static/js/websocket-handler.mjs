@@ -2,12 +2,47 @@
 export class WebSocketHandler {
     constructor() {
         this.audioManager = null;
+        this.roomInfo = this.parseRoomInfo();
         this.setupEventListeners();
+        this.updatePageInfo();
+        this.setJoinRoomValues();
     }
 
     setAudioManager(audioManager) {
         this.audioManager = audioManager;
         console.log('[WebSocket] Audio manager connected');
+    }
+
+    parseRoomInfo() {
+        const path = window.location.pathname;
+        const segments = path.split('/').filter(s => s);
+        
+        let roomId = 'default';
+        let isHost = false;
+        
+        if (segments.length > 0) {
+            roomId = segments[0];
+            if (segments.length > 1 && segments[1] === 'host') {
+                isHost = true;
+            }
+        }
+        
+        console.log('[WebSocket] Parsed room info:', { roomId, isHost, path });
+        return { roomId, isHost };
+    }
+
+    setJoinRoomValues() {
+        // Set the hx-vals for the join room sender
+        const joinSender = document.getElementById('joinRoomSender');
+        if (joinSender) {
+            const joinMessage = {
+                type: 'join_room',
+                roomId: this.roomInfo.roomId,
+                isHost: this.roomInfo.isHost
+            };
+            joinSender.setAttribute('hx-vals', JSON.stringify(joinMessage));
+            console.log('[WebSocket] Set join room values:', joinMessage);
+        }
     }
 
     setupEventListeners() {
@@ -31,7 +66,7 @@ export class WebSocketHandler {
         });
 
         document.body.addEventListener('htmx:wsBeforeSend', (event) => {
-            console.log('[WebSocket] About to send message:', event.detail);
+            console.log('[WebSocket] About to send:', event.detail);
         });
     }
 
@@ -71,6 +106,7 @@ export class WebSocketHandler {
         }
     }
 
+
     updatePlayButton(isPlaying) {
         const playButton = document.getElementById('playButton');
         if (isPlaying) {
@@ -79,6 +115,34 @@ export class WebSocketHandler {
         } else {
             playButton.textContent = 'Start Playing Music';
             playButton.classList.remove('playing');
+        }
+        
+        // Update button text based on host status
+        if (this.roomInfo.isHost) {
+            const hostText = isPlaying ? 'Stop Music (HOST)' : 'Start Playing Music (HOST)';
+            playButton.textContent = hostText;
+        }
+    }
+
+    updatePageInfo() {
+        // Update page title
+        const roomDisplay = this.roomInfo.roomId === 'default' ? 'Lobby' : this.roomInfo.roomId;
+        const hostDisplay = this.roomInfo.isHost ? ' (Host)' : '';
+        document.title = `Wrap It Up - ${roomDisplay}${hostDisplay}`;
+        
+        // Update room info display
+        const roomInfoElement = document.getElementById('roomInfo');
+        if (roomInfoElement) {
+            let roomText = '';
+            if (this.roomInfo.roomId !== 'default') {
+                roomText = `Room: ${this.roomInfo.roomId}`;
+                if (this.roomInfo.isHost) {
+                    roomText += ' • 👑 Host Mode';
+                }
+            } else if (this.roomInfo.isHost) {
+                roomText = '👑 Host Mode';
+            }
+            roomInfoElement.textContent = roomText;
         }
     }
 }
