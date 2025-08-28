@@ -11,8 +11,8 @@ const webSocketHandler = new WebSocketHandler();
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[App] DOM loaded, initializing audio components');
     
-    // Initialize audio manager
-    const audioManager = new AudioManager();
+    // Initialize audio manager with host status
+    const audioManager = new AudioManager(webSocketHandler.roomInfo.isHost);
     await audioManager.initializeSongs();
     
     // Connect audio manager to WebSocket handler

@@ -1,11 +1,12 @@
 // Audio management module
 export class AudioManager {
-    constructor() {
+    constructor(isHost = false) {
         this.currentPlayer = null;
         this.currentFadeInterval = null;
         this.songMap = {};
         this.availableSongs = [];
         this.isPlaying = false;
+        this.isHost = isHost;
     }
 
     async initializeSongs() {
@@ -37,12 +38,20 @@ export class AudioManager {
         }
     }
 
-    updateMusicState(playing, startTime, songUrl) {
-        console.log('[Audio] State update:', { playing, songUrl, startTime });
+    updateMusicState(playing, startTime, songUrl, hasHosts = false) {
+        console.log('[Audio] State update:', { playing, songUrl, startTime, isHost: this.isHost, hasHosts });
         this.isPlaying = playing;
         
+        // Play music logic:
+        // - If there are no hosts in the room, all devices play music
+        // - If there are hosts in the room, only host devices play music
         if (playing) {
-            this.startMusic(startTime, songUrl);
+            const shouldPlay = !hasHosts || this.isHost;
+            if (shouldPlay) {
+                this.startMusic(startTime, songUrl);
+            } else {
+                console.log('[Audio] Non-host client with hosts present - not playing audio');
+            }
         } else {
             this.stopMusic();
         }

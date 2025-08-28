@@ -87,10 +87,11 @@ export class WebSocketHandler {
                     console.log('[WebSocket] Music state changed:', {
                         isPlaying: data.isPlaying,
                         song: data.songUrl,
-                        startTime: data.startTime
+                        startTime: data.startTime,
+                        hasHosts: data.hasHosts
                     });
                     if (this.audioManager) {
-                        this.audioManager.updateMusicState(data.isPlaying, data.startTime, data.songUrl);
+                        this.audioManager.updateMusicState(data.isPlaying, data.startTime, data.songUrl, data.hasHosts);
                     } else {
                         console.warn('[WebSocket] Audio manager not ready yet');
                     }
@@ -115,12 +116,6 @@ export class WebSocketHandler {
         } else {
             playButton.textContent = 'Start Playing Music';
             playButton.classList.remove('playing');
-        }
-        
-        // Update button text based on host status
-        if (this.roomInfo.isHost) {
-            const hostText = isPlaying ? 'Stop Music (HOST)' : 'Start Playing Music (HOST)';
-            playButton.textContent = hostText;
         }
     }
 

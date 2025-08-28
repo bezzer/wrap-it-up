@@ -150,7 +150,8 @@ wss.on('connection', (ws, req) => {
                     type: 'music_state',
                     isPlaying: room.isPlaying,
                     startTime: room.playStartTime,
-                    songUrl: room.currentSong
+                    songUrl: room.currentSong,
+                    hasHosts: room.hosts.size > 0
                 }));
                 
                 // Broadcast user count update to room
@@ -172,13 +173,7 @@ wss.on('connection', (ws, req) => {
                 const room = rooms.get(ws.roomId);
                 if (!room) return;
                 
-                // Check if user can control music (host mode logic)
-                const canControl = room.hosts.size === 0 || ws.isHost;
-                
-                if (!canControl) {
-                    console.log(`[WebSocket] Music toggle denied - user is not host and hosts exist`);
-                    return;
-                }
+                // Allow anyone to control music - playback restriction is handled client-side
                 
                 console.log(`[WebSocket] Toggle music trigger received in room: ${ws.roomId}`);
                 
@@ -198,7 +193,8 @@ wss.on('connection', (ws, req) => {
                     type: 'music_state',
                     isPlaying: room.isPlaying,
                     startTime: room.playStartTime,
-                    songUrl: room.currentSong
+                    songUrl: room.currentSong,
+                    hasHosts: room.hosts.size > 0
                 };
                 console.log(`[WebSocket] Broadcasting music state to room ${ws.roomId}:`, musicState);
                 broadcastToRoom(ws.roomId, musicState);
