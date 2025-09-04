@@ -111,3 +111,12 @@ h1 {
 .debug-stop-button:hover {
     background: #d55;
 }
+
+/* Mobile portrait styles */
+@media screen and (max-width: 768px) and (orientation: portrait) {
+    .container {
+        background: transparent;
+        box-shadow: none;
+        backdrop-filter: none;
+    }
+}
